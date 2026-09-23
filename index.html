@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>My World</title>
+
+<style>
+*{box-sizing:border-box}
+html,body{
+  margin:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#111827;
+  font-family:Arial,sans-serif;
+}
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+#start{
+  position:fixed;
+  inset:0;
+  z-index:10;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  background:linear-gradient(160deg,#111827,#263b66);
+  color:white;
+}
+#start h1{
+  font-size:38px;
+  margin:0 0 10px;
+}
+#start p{
+  color:#b9c5d8;
+}
+#play{
+  margin-top:20px;
+  padding:16px 35px;
+  border:0;
+  border-radius:15px;
+  background:#19b978;
+  color:white;
+  font-size:19px;
+  font-weight:bold;
+}
+#hud{
+  position:fixed;
+  top:12px;
+  left:12px;
+  z-index:5;
+  padding:10px 14px;
+  border-radius:12px;
+  background:#0009;
+  color:white;
+  font-size:15px;
+}
+#controls{
+  position:fixed;
+  bottom:15px;
+  left:15px;
+  right:15px;
+  z-index:5;
+  display:flex;
+  justify-content:space-between;
+  align-items:end;
+}
+.pad{
+  display:grid;
+  grid-template-columns:55px 55px 55px;
+  grid-template-rows:55px 55px;
+  gap:5px;
+}
+.btn{
+  width:55px;
+  height:55px;
+  border:1px solid #ffffff55;
+  border-radius:14px;
+  background:#172238dd;
+  color:white;
+  font-size:22px;
+}
+.actions{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.action{
+  width:100px;
+  height:48px;
+  border:0;
+  border-radius:14px;
+  color:white;
+  font-weight:bold;
+  background:#263b66dd;
+}
+#fire{background:#c53b3b}
+#reload{background:#c98a24}
+#run{background:#2787c9}
+</style>
+</head>
+
+<body>
+
+<div id="start">
+  <h1>🌍 MY WORLD</h1>
+  <p>Kendi dünyana hoş geldin!</p>
+  <p>Haritayı keşfet ve oyun alanlarını bul.</p>
+  <button id="play">OYUNA BAŞLA</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="hud">
+  ❤️ <span id="hp">100</span>
+  &nbsp; | &nbsp;
+  🔫 <span id="ammo">12</span>/12
+  &nbsp; | &nbsp;
+  ⭐ <span id="score">0</span>
+</div>
+
+<div id="controls">
+
+  <div class="pad">
+    <button class="btn" id="up">▲</button>
+    <span></span>
+    <span></span>
+    <button class="btn" id="left">◀</button>
+    <button class="btn" id="down">▼</button>
+    <button class="btn" id="right">▶</button>
+  </div>
+
+  <div class="actions">
+    <button class="action" id="run">🏃 KOŞ</button>
+    <button class="action" id="fire">🔫 ATEŞ</button>
+    <button class="action" id="reload">🔄 ŞARJÖR</button>
+  </div>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W = 0;
+let H = 0;
+
+function resize(){
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W;
+  canvas.height = H;
+}
+
+resize();
+window.addEventListener("resize",resize);
+
+const player = {
+  x:500,
+  y:450,
+  size:22,
+  speed:170,
+  hp:100,
+  ammo:12,
+  maxAmmo:12,
+  angle:0
+};
+
+const world = {
+  width:1800,
+  height:1200
+};
+
+const zombieZone = {
+  x:1050,
+  y:220,
+  w:600,
+  h:700
+};
+
+let zombies = [];
+let bullets = [];
+let score = 0;
+
+let keys = {};
+let running = false;
+let sprint = false;
+let lastTime = 0;
+
+const hpText = document.getElementById("hp");
+const ammoText = document.getElementById("ammo");
+const scoreText = document.getElementById("score");
+
+document.getElementById("play").onclick = function(){
+
+  document.getElementById("start").style.display="none";
+
+  running=true;
+  lastTime=performance.now();
+
+  requestAnimationFrame(loop);
+};
+
+function spawnZombie(){
+
+  let x;
+  let y;
+
+  const side=Math.floor(Math.random()*4);
+
+  if(side===0){
+    x=zombieZone.x+Math.random()*zombieZone.w;
+    y=zombieZone.y;
+  }
+
+  if(side===1){
+    x=zombieZone.x+Math.random()*zombieZone.w;
+    y=zombieZone.y+zombieZone.h;
+  }
+
+  if(side===2){
+    x=zombieZone.x;
+    y=zombieZone.y+Math.random()*zombieZone.h;
+  }
+
+  if(side===3){
+    x=zombieZone.x+zombieZone.w;
+    y=zombieZone.y+Math.random()*zombieZone.h;
+  }
+
+  zombies.push({
+    x:x,
+    y:y,
+    hp:3,
+    speed:35+Math.random()*20,
+    size:25
+  });
+}
+
+function inZombieZone(){
+
+  return (
+    player.x>zombieZone.x &&
+    player.x<zombieZone.x+zombieZone.w &&
+    player.y>zombieZone.y &&
+    player.y<zombieZone.y+zombieZone.h
+  );
+}
+
+function shoot(){
+
+  if(!running)return;
+
+  if(player.ammo<=0)return;
+
+  player.ammo--;
+
+  bullets.push({
+    x:player.x,
+    y:player.y,
+    vx:Math.cos(player.angle)*650,
+    vy:Math.sin(player.angle)*650,
+    life:1
+  });
+
+  updateHud();
+}
+
+function reload(){
+
+  if(player.ammo===player.maxAmmo)return;
+
+  setTimeout(function(){
+
+    player.ammo=player.maxAmmo;
+    updateHud();
+
+  },700);
+}
+
+function updateHud(){
+
+  hpText.textContent=Math.max(0,Math.floor(player.hp));
+  ammoText.textContent=player.ammo;
+  scoreText.textContent=score;
+
+}
+
+function update(dt){
+
+  let dx=0;
+  let dy=0;
+
+  if(keys["up"])dy--;
+  if(keys["down"])dy++;
+  if(keys["left"])dx--;
+  if(keys["right"])dx++;
+
+  if(dx!==0 || dy!==0){
+
+    const length=Math.hypot(dx,dy);
+
+    dx/=length;
+    dy/=length;
+
+    const speed=sprint ? 300 : player.speed;
+
+    player.x+=dx*speed*dt;
+    player.y+=dy*speed*dt;
+
+    player.angle=Math.atan2(dy,dx);
+  }
+
+  player.x=Math.max(20,Math.min(world.width-20,player.x));
+  player.y=Math.max(20,Math.min(world.height-20,player.y));
+
+  for(const b of bullets){
+
+    b.x+=b.vx*dt;
+    b.y+=b.vy*dt;
+    b.life-=dt;
+
+  }
+
+  bullets=bullets.filter(b=>b.life>0);
+
+  if(inZombieZone()){
+
+    if(zombies.length<8){
+
+      spawnZombie();
+
+    }
+
+    for(const z of zombies){
+
+      const dx=player.x-z.x;
+      const dy=player.y-z.y;
+
+      const distance=Math.hypot(dx,dy);
+
+      if(distance>35){
+
+        z.x+=dx/distance*z.speed*dt;
+        z.y+=dy/distance*z.speed*dt;
+
+      }else{
+
+        player.hp-=15*dt;
+
+      }
+    }
+
+  }
+
+  for(const b of bullets){
+
+    for(const z of zombies){
+
+      const distance=Math.hypot(
+        b.x-z.x,
+        b.y-z.y
+      );
+
+      if(distance<z.size){
+
+        z.hp--;
+        b.life=0;
+
+        if(z.hp<=0){
+
+          z.dead=true;
+          score+=10;
+
+        }
+
+      }
+
+    }
+
+  }
+
+  zombies=zombies.filter(z=>!z.dead);
+
+  if(player.hp<=0){
+
+    running=false;
+
+    alert("Oyun bitti! Puan: "+score);
+
+    location.reload();
+
+  }
+
+  updateHud();
+}
+
+function draw(){
+
+  const cameraX=player.x-W/2;
+  const cameraY=player.y-H/2;
+
+  ctx.clearRect(0,0,W,H);
+
+  ctx.save();
+
+  ctx.translate(-cameraX,-cameraY);
+
+  // ANA DÜNYA
+
+  ctx.fillStyle="#3d6549";
+  ctx.fillRect(
+    0,
+    0,
+    world.width,
+    world.height
+  );
+
+  // YOLLAR
+
+  ctx.fillStyle="#4c5260";
+
+  ctx.fillRect(
+    0,
+    390,
+    world.width,
+    120
+  );
+
+  ctx.fillRect(
+    700,
+    0,
+    130,
+    world.height
+  );
+
+  // MERKEZ
+
+  ctx.fillStyle="#536b82";
+  ctx.fillRect(150,150,450,220);
+
+  ctx.fillStyle="white";
+  ctx.font="30px Arial";
+  ctx.fillText("🏙️ MERKEZ",270,250);
+
+  // EVLER
+
+  ctx.fillStyle="#26364a";
+
+  for(let i=0;i<4;i++){
+
+    ctx.fillRect(
+      170+i*100,
+      285,
+      70,
+      60
+    );
+
+  }
+
+  // ZOMBİ BÖLGESİ
+
+  ctx.fillStyle="#542f35";
+
+  ctx.fillRect(
+    zombieZone.x,
+    zombieZone.y,
+    zombieZone.w,
+    zombieZone.h
+  );
+
+  ctx.strokeStyle="#ff5555";
+  ctx.lineWidth=8;
+
+  ctx.strokeRect(
+    zombieZone.x,
+    zombieZone.y,
+    zombieZone.w,
+    zombieZone.h
+  );
+
+  ctx.fillStyle="#fff";
+  ctx.font="32px Arial";
+
+  ctx.fillText(
+    "🧟 ZOMBİ OYUNU",
+    1160,
+    190
+  );
+
+  // ARENA
+
+  ctx.fillStyle="#7049a0";
+
+  ctx.beginPath();
+  ctx.arc(500,800,100,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="white";
+  ctx.font="25px Arial";
+  ctx.fillText("⚔️ ARENA",445,810);
+
+  // PARKUR
+
+  ctx.fillStyle="#d09a36";
+
+  ctx.fillRect(850,850,400,150);
+
+  ctx.fillStyle="white";
+  ctx.font="25px Arial";
+  ctx.fillText("🏃 PARKUR",980,930);
+
+  // BULLETS
+
+  ctx.fillStyle="#ffe56b";
+
+  for(const b of bullets){
+
+    ctx.beginPath();
+
+    ctx.arc(
+      b.x,
+      b.y,
+      5,
+      0,
+      Math.PI*2
+    );
+
+    ctx.fill();
+
+  }
+
+  // ZOMBIES
+
+  for(const z of zombies){
+
+    ctx.font="36px Arial";
+
+    ctx.fillText(
+      "🧟",
+      z.x-18,
+      z.y+12
+    );
+
+    ctx.fillStyle="#222";
+
+    ctx.fillRect(
+      z.x-20,
+      z.y-30,
+      40,
+      5
+    );
+
+    ctx.fillStyle="#52d65c";
+
+    ctx.fillRect(
+      z.x-20,
+      z.y-30,
+      40*(z.hp/3),
+      5
+    );
+
+  }
+
+  // PLAYER
+
+  ctx.save();
+
+  ctx.translate(
+    player.x,
+    player.y
+  );
+
+  ctx.rotate(player.angle);
+
+  ctx.font="40px Arial";
+
+  ctx.fillText(
+    "🧍",
+    -20,
+    15
+  );
+
+  ctx.fillStyle="#222";
+
+  ctx.fillRect(
+    8,
+    -5,
+    35,
+    9
+  );
+
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function loop(time){
+
+  if(!running)return;
+
+  const dt=Math.min(
+    (time-lastTime)/1000,
+    0.05
+  );
+
+  lastTime=time;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+
+// KLAVYE
+
+window.addEventListener("keydown",function(e){
+
+  if(e.key==="w" || e.key==="ArrowUp")
+    keys.up=true;
+
+  if(e.key==="s" || e.key==="ArrowDown")
+    keys.down=true;
+
+  if(e.key==="a" || e.key==="ArrowLeft")
+    keys.left=true;
+
+  if(e.key==="d" || e.key==="ArrowRight")
+    keys.right=true;
+
+  if(e.key===" ")
+    shoot();
+
+  if(e.key.toLowerCase()==="r")
+    reload();
+
+});
+
+window.addEventListener("keyup",function(e){
+
+  if(e.key==="w" || e.key==="ArrowUp")
+    keys.up=false;
+
+  if(e.key==="s" || e.key==="ArrowDown")
+    keys.down=false;
+
+  if(e.key==="a" || e.key==="ArrowLeft")
+    keys.left=false;
+
+  if(e.key==="d" || e.key==="ArrowRight")
+    keys.right=false;
+
+});
+
+
+// TELEFON BUTONLARI
+
+function hold(id,key){
+
+  const b=document.getElementById(id);
+
+  b.addEventListener("pointerdown",function(e){
+
+    e.preventDefault();
+    keys[key]=true;
+
+  });
+
+  b.addEventListener("pointerup",function(){
+
+    keys[key]=false;
+
+  });
+
+  b.addEventListener("pointercancel",function(){
+
+    keys[key]=false;
+
+  });
+
+}
+
+hold("up","up");
+hold("down","down");
+hold("left","left");
+hold("right","right");
+
+document.getElementById("fire")
+.addEventListener("pointerdown",function(e){
+
+  e.preventDefault();
+  shoot();
+
+});
+
+document.getElementById("reload")
+.addEventListener("click",reload);
+
+document.getElementById("run")
+.addEventListener("pointerdown",function(){
+
+  sprint=true;
+
+});
+
+document.getElementById("run")
+.addEventListener("pointerup",function(){
+
+  sprint=false;
+
+});
+
+</script>
+
+</body>
+</html>
